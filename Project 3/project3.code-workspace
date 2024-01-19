@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "localdata",
+			"path": "../../../Downloads/localdata"
+		},
+		{
+			"name": "Project 3",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
