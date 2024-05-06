@@ -1,170 +1,109 @@
-from dataclasses import dataclass
-import csv
-import math
-import re
-from load_recipes import*
+import requests
+from bs4 import BeautifulSoup
+import urllib.parse
+import urllib.request
+import ssl
 
-@dataclass
-class Recipe:
-    id: int
-    title: str
-    year: int
-    artist: str
-    genre: str
-    lyrics: list
+class AllRecipes(object):
+    @staticmethod
+    def search(search_string, sort_by='rating', order='desc'):
+        """
+        Search recipes by ingredient with options to sort by rating, prep time, etc.
+        """
+        base_url = "https://allrecipes.com/search?"
+        query_url = urllib.parse.urlencode({"q": search_string})
+        url = base_url + query_url
+        req = urllib.request.Request(url)
+        req.add_header('Cookie', 'euConsent=true')
+        handler = urllib.request.HTTPSHandler(context=ssl._create_unverified_context())
+        opener = urllib.request.build_opener(handler)
+        response = opener.open(req)
+        html_content = response.read()
+        soup = BeautifulSoup(html_content, 'html.parser')
+        search_data = []
+        articles = soup.findAll("a", {"class": "mntl-card-list-items"})
+        articles = [a for a in articles if a["href"].startswith("https://www.allrecipes.com/recipe/")]
+        for article in articles:
+            data = {}
+            try:
+                data["name"] = article.find("span", {"class": "card__title"}).get_text().strip()
+                data["url"] = article['href']
+                data["rating"] = len(article.find_all("svg", {"class": "icon-star"}))
+                if article.find("svg", {"class": "icon-star-half"}):
+                    data["rating"] += 0.5
+                data["image"] = article.find('img').get('data-src', article.find('img').get('src'))
+            except Exception as e:
+                continue  # Skip if there's an error processing this article
+            if data:
+                search_data.append(data)
+        if sort_by == 'rating':
+            search_data.sort(key=lambda x: x.get('rating', 0), reverse=(order == 'desc'))
+        return search_data
 
-"""
+    @staticmethod
+    def get_dinner_ideas(search_string):
+        """
+        Search for recipes and print each result, then return a list of recipe names.
+        """
+        search_results = AllRecipes.search(search_string)
+        for result in search_results:
+            print(result)
+        # Extract just the names from the search results
+        names_list = [recipe['name'] for recipe in search_results]
+        return names_list
 
-"""
+    @staticmethod
+    def get(url):
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        recipe = {
+            "name": AllRecipes._get_name(soup),
+            "ingredients": AllRecipes._get_ingredients(soup),
+            "steps": AllRecipes._get_steps(soup)
+        }
+        return recipe
 
-bad_characters = re.compile(r"[^\w]")
+    @staticmethod
+    def _get_name(soup):
+        return soup.find("h1", class_="recipe-title").text.strip()
 
-def clean_word(word: str) -> str:
-    """input: string
-    output: string
-    description: using the bad characters regular expression, this function strips out invalid
-    characters
-    """
-    word = word.strip().lower()
-    return bad_characters.sub("", word)
+    @staticmethod
+    def _get_ingredients(soup):
+        ingredients_list = soup.find("ul", class_="ingredients-list")
+        ingredients = [li.get_text().strip() for li in ingredients_list.find_all("li")]
+        return ingredients
 
+    @staticmethod
+    def _get_steps(soup):
+        steps_list = soup.find("ol", class_="directions-list")
+        steps = [li.get_text().strip() for li in steps_list.find_all("li")]
+        return steps
 
-def clean_lyrics(lyrics: str) -> list:
-    """input: string representing the lyrics for a Recipe
-    output: a list with each of the words for a Recipe
-    description: this function parses through all of the lyrics for a Recipe and makes sure
-    they contain valid characters
-    """
-    lyrics = lyrics.replace("\n", " ")
-    return [clean_word(word) for word in lyrics.split(" ")]
+if __name__ == "__main__":
+    while True:
+        # Ask the user for the ingredient to search for
+        user_ingredient = input("Enter the ingredient to search for recipes: ").strip('"')
+        search_results = AllRecipes.search(user_ingredient)
+        print("Recipe Names Found:")
+        for index, recipe in enumerate(search_results, 1):
+            print(f"{index}: {recipe['name']}")
 
+        # Ask user to select a recipe for more details
+        recipe_choice = int(input("Enter the number of the recipe you want details for: ")) - 1
+        selected_recipe = search_results[recipe_choice]
 
-def create_corpus(filename: str) -> list:
-    """input: a filename
-    output: a list of Recipes
-    description: this function is responsible for creating the collection of Recipes, including some data cleaning
-    """
-    with open(filename) as f:
-        corpus = []
-        iden = 0
-        for s in csv.reader(f):
-            if s[4] != "Not Available":
-                new_Recipe = Recipe(iden, s[1], s[2], s[3], s[4], clean_lyrics(s[5]))
-                corpus.append(new_Recipe)
-                iden += 1
-        return corpus
+        # Fetch detailed recipe information
+        detailed_info = AllRecipes.get(selected_recipe['url'])
+        print("\nSelected Recipe Details:")
+        print(f"Name: {detailed_info['name']}")
+        print("Ingredients:")
+        for ingredient in detailed_info['ingredients']:
+            print(f"- {ingredient}")
+        print("Steps:")
+        for step_number, step in enumerate(detailed_info['steps'], start=1):
+            print(f"Step {step_number}: {step}")
 
-
-def split_list_strings(corpus: list) -> list:
-    """input: a list of strings
-    output: a list of strings where each string has a length of 1
-    description: this function is responsible for splitting a list of strings
-    with unequal length to separate each individual word
-    """
-    split_list = []
-    for string in corpus:
-        split_list.extend(string.lower().split())
-    return split_list
-
-
-def compute_tf(Recipe_lyrics: list) -> dict:
-    """input: list representing the Recipe lyrics
-    output: dictionary containing the term frequency for that set of lyrics
-    description: this function calculates the term frequency for a set of lyrics
-    """
-    Recipe_lyrics_dict = {}
-    split_Recipe = split_list_strings(Recipe_lyrics)
-    for lyric in split_Recipe:
-        Recipe_lyrics_dict[lyric] = split_Recipe.count(lyric)
-    return Recipe_lyrics_dict
-
-
-def item_in_list(item: str, corpus: list) -> int:
-    """input: a list of Recipes
-    output: an integer representing how many times an item appears in the list
-    description: this function is responsible for producing the number of
-    documents in which a particular term i appears in the data n~i~
-    """
-    item_num = 0
-    for x in corpus:
-        if item in x:
-            item_num += 1
-    return item_num
-
-
-def compute_indv_idf(corpus: list) -> dict:
-    """input: a list of Recipes
-    output: a dictionary from words to inverse document frequencies (as floats)
-    description: this function is responsible for calculating inverse document
-      frequencies of every word in the corpus
-    """
-    corpus_idf_dict = {}
-    corpus_word = split_list_strings(corpus)
-    for x in corpus_word:
-        corpus_idf_dict[x] = math.log(((len(corpus))/(item_in_list(x, corpus))))
-    return corpus_idf_dict
-
-
-def compute_idf(corpus: list) -> dict:
-    corpus_idf_dict = {}
-    for x in corpus:
-        lyrics = getattr(x, 'lyrics')
-        title = getattr(x, 'id')
-        corpus_idf_dict[title] = compute_indv_idf(lyrics)
-    return corpus_idf_dict
-
-
-def compute_tf_idf(Recipe_lyrics: list, corpus_idf: dict) -> dict:
-    """input: a list representing the Recipe lyrics and an inverse document frequency dictionary
-    output: a dictionary with tf-idf weights for the Recipe (words to weights)
-    description: this function calculates the tf-idf weights for a Recipe
-    """
-    tf_idf_dict = {}
-    Recipe_lyrics_tf = compute_tf(Recipe_lyrics)
-    for x in corpus_idf:
-        tf_idf_dict[x] = Recipe_lyrics_tf[x] * corpus_idf[x]
-    return tf_idf_dict
-
-
-def compute_corpus_tf_idf(corpus: list, corpus_idf: dict) -> dict:
-    """input: a list of Recipes and an idf dictionary
-    output: a dictionary from Recipe ids to tf-idf dictionaries
-    description: calculates tf-idf weights for an entire corpus
-    """
-    corpus_idf_dict = {}
-    for x in corpus:
-        lyrics = getattr(x, 'lyrics')
-        title = getattr(x, 'id')
-        corpus_idf_dict[title] = compute_tf_idf(lyrics)
-    return corpus_idf_dict
-
-
-def cosine_similarity(l1: dict, l2: dict) -> float:
-    """input: dictionary containing the term frequency - inverse document frequency weights (tf-idf) for a Recipe,
-    dictionary containing the term frequency - inverse document frequency weights (tf-idf) for a Recipe
-    output: float representing the similarity between the values of the two dictionaries
-    description: this function finds the similarity score between two dictionaries by representing them as vectors and
-    comparing their proximity.
-    """
-    magnitude1 = math.sqrt(sum(w * w for w in l1.values()))
-    magnitude2 = math.sqrt(sum(w * w for w in l2.values()))
-    dot = sum(l1[w] * l2.get(w, 0) for w in l1)
-    return dot / (magnitude1 * magnitude2)
-
-
-def nearest_neighbor(
-    Recipe_lyrics: str, corpus: list, corpus_tf_idf: dict, corpus_idf: dict
-) -> Recipe:
-    """input: a string representing the lyrics for a Recipe, a list of Recipes,
-      tf-idf weights for every Recipe in the corpus, and idf weights for every word in the corpus
-    output: a Recipe object
-    description: this function produces the Recipe in the corpus that is most similar to the lyrics it is given
-    """
-    pass
-
-
-def main(filename: str, lyrics: str):
-    corpus = create_corpus(filename)
-    corpus_idf = compute_idf(corpus)
-    corpus_tf_idf = compute_corpus_tf_idf(corpus, corpus_idf)
-    print(nearest_neighbor(lyrics, corpus, corpus_tf_idf, corpus_idf).genre)
+        # Ask the user if they want to search again
+        search_again = input("Do you want to search again? (yes/no): ")
+        if search_again.lower() != 'yes':
+            break
