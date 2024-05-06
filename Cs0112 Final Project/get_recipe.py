@@ -8,8 +8,17 @@ class AllRecipes(object):
     @staticmethod
     def search(search_string, sort_by='rating', order='desc'):
         """
-        Search recipes by ingredient with options to sort by rating, prep time, etc.
+        Search for recipes by ingredient.
+
+        Parameters:
+        - search_string (str): The ingredient to search for.
+        - sort_by (str): The sorting criteria ('rating' by default).
+        - order (str): The order of sorting ('desc' by default).
+
+        Returns:
+        - list: A list of dictionaries containing recipe information.
         """
+
         base_url = "https://allrecipes.com/search?"
         query_url = urllib.parse.urlencode({"q": search_string})
         url = base_url + query_url
@@ -43,17 +52,32 @@ class AllRecipes(object):
     @staticmethod
     def get_dinner_ideas(search_string):
         """
-        Search for recipes and print each result, then return a list of recipe names.
+        Search for recipes based on the given ingredient and print the results.
+
+        Parameters:
+        - search_string (str): The ingredient to search for.
+
+        Returns:
+        - list: A list of dictionaries containing recipe names and URLs.
         """
         search_results = AllRecipes.search(search_string)
         for result in search_results:
             print(result)
-        # Extract just the names from the search results
-        names_list = [recipe['name'] for recipe in search_results]
-        return names_list
+        # Extract just the names and URLs from the search results
+        recipes_data = [{"name": recipe['name'], "url": recipe['url']} for recipe in search_results]
+        return recipes_data
 
     @staticmethod
     def get(url):
+        """
+        Get detailed information about a recipe from the given URL.
+
+        Parameters:
+        - url (str): The URL of the recipe.
+
+        Returns:
+        - dict: A dictionary containing detailed recipe information.
+        """
         response = requests.get(url)
         soup = BeautifulSoup(response.content, 'html.parser')
         recipe = {
@@ -65,45 +89,49 @@ class AllRecipes(object):
 
     @staticmethod
     def _get_name(soup):
-        return soup.find("h1", class_="recipe-title").text.strip()
+        """
+        Extract the name of the recipe from the BeautifulSoup object.
+
+        Parameters:
+        - soup (BeautifulSoup): The BeautifulSoup object of the recipe page.
+
+        Returns:
+        - str: The name of the recipe.
+        """
+        return soup.find("span", class_="card__title-text").text.strip()
 
     @staticmethod
     def _get_ingredients(soup):
-        ingredients_list = soup.find("ul", class_="ingredients-list")
-        ingredients = [li.get_text().strip() for li in ingredients_list.find_all("li")]
-        return ingredients
+        """
+        Extract the ingredients of the recipe from the BeautifulSoup object.
+
+        Parameters:
+        - soup (BeautifulSoup): The BeautifulSoup object of the recipe page.
+
+        Returns:
+        - list: A list of ingredients.
+        """
+        ingredients_list = soup.find("ul", class_="mntl-structured-ingredients__list")
+        if ingredients_list:
+            ingredients = [li.get_text().strip() for li in ingredients_list.find_all("li")]
+            return ingredients
+        else:
+            return []
 
     @staticmethod
     def _get_steps(soup):
-        steps_list = soup.find("ol", class_="directions-list")
-        steps = [li.get_text().strip() for li in steps_list.find_all("li")]
-        return steps
+        """
+        Extract the preparation steps of the recipe from the BeautifulSoup object.
 
-if __name__ == "__main__":
-    while True:
-        # Ask the user for the ingredient to search for
-        user_ingredient = input("Enter the ingredient to search for recipes: ").strip('"')
-        search_results = AllRecipes.search(user_ingredient)
-        print("Recipe Names Found:")
-        for index, recipe in enumerate(search_results, 1):
-            print(f"{index}: {recipe['name']}")
+        Parameters:
+        - soup (BeautifulSoup): The BeautifulSoup object of the recipe page.
 
-        # Ask user to select a recipe for more details
-        recipe_choice = int(input("Enter the number of the recipe you want details for: ")) - 1
-        selected_recipe = search_results[recipe_choice]
-
-        # Fetch detailed recipe information
-        detailed_info = AllRecipes.get(selected_recipe['url'])
-        print("\nSelected Recipe Details:")
-        print(f"Name: {detailed_info['name']}")
-        print("Ingredients:")
-        for ingredient in detailed_info['ingredients']:
-            print(f"- {ingredient}")
-        print("Steps:")
-        for step_number, step in enumerate(detailed_info['steps'], start=1):
-            print(f"Step {step_number}: {step}")
-
-        # Ask the user if they want to search again
-        search_again = input("Do you want to search again? (yes/no): ")
-        if search_again.lower() != 'yes':
-            break
+        Returns:
+        - list: A list of preparation steps.
+        """
+        steps_list = soup.find("ol", class_="mntl-sc-block-group--OL")
+        if steps_list:
+            steps = [li.find("p").get_text().strip() for li in steps_list.find_all("li")]
+            return steps
+        else:
+            return []
